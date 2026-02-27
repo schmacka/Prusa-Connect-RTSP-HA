@@ -1,8 +1,9 @@
+# main.py
 import os
 import cv2
 import requests
 import time
-import json
+import base64
 from datetime import datetime
 import glob
 
@@ -20,75 +21,6 @@ ENABLE_TIMELAPSE = os.environ.get("ENABLE_TIMELAPSE", "false").lower() == "true"
 TIMELAPSE_SAVE_INTERVAL = int(os.environ.get("TIMELAPSE_SAVE_INTERVAL", "30"))  # Save frame every X seconds
 TIMELAPSE_DIR = os.environ.get("TIMELAPSE_DIR", "timelapse_frames")
 TIMELAPSE_FPS = int(os.environ.get("TIMELAPSE_FPS", "24"))  # FPS for timelapse video
-
-# MQTT configuration (auto-detected from Home Assistant)
-MQTT_HOST = os.environ.get("MQTT_HOST")
-MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
-MQTT_USER = os.environ.get("MQTT_USER")
-MQTT_PASS = os.environ.get("MQTT_PASS")
-CAMERA_NAME = os.environ.get("CAMERA_NAME", "Printer Camera")
-CAMERA_SLUG = os.environ.get("CAMERA_SLUG", "printer_camera").lower().replace(" ", "_")
-
-# MQTT client setup
-mqtt_client = None
-mqtt_connected = False
-
-if MQTT_HOST:
-    try:
-        import paho.mqtt.client as paho_mqtt
-
-        MQTT_IMAGE_TOPIC = f"prusa_connect_rtsp/{CAMERA_SLUG}/image"
-        MQTT_AVAIL_TOPIC = f"prusa_connect_rtsp/{CAMERA_SLUG}/availability"
-        MQTT_DISCOVERY_TOPIC = f"homeassistant/camera/prusa_rtsp_{CAMERA_SLUG}/config"
-
-        def on_mqtt_connect(client, userdata, flags, rc):
-            global mqtt_connected
-            if rc == 0:
-                mqtt_connected = True
-                print(f"📡 MQTT connected to {MQTT_HOST}:{MQTT_PORT}")
-                # Publish availability
-                client.publish(MQTT_AVAIL_TOPIC, "online", retain=True)
-                # Publish HA MQTT discovery config
-                discovery_payload = json.dumps({
-                    "name": CAMERA_NAME,
-                    "unique_id": f"prusa_rtsp_{CAMERA_SLUG}",
-                    "topic": MQTT_IMAGE_TOPIC,
-                    "availability_topic": MQTT_AVAIL_TOPIC,
-                    "device": {
-                        "identifiers": [f"prusa_connect_rtsp_{CAMERA_SLUG}"],
-                        "name": CAMERA_NAME,
-                        "manufacturer": "Prusa Connect RTSP",
-                    },
-                })
-                client.publish(MQTT_DISCOVERY_TOPIC, discovery_payload, retain=True)
-                print(f"📡 MQTT discovery published for {CAMERA_NAME}")
-            else:
-                print(f"⚠️ MQTT connection failed with code {rc}")
-
-        def on_mqtt_disconnect(client, userdata, rc):
-            global mqtt_connected
-            mqtt_connected = False
-            if rc != 0:
-                print(f"⚠️ MQTT disconnected unexpectedly (rc={rc}), will auto-reconnect")
-
-        mqtt_client = paho_mqtt.Client()
-        if MQTT_USER:
-            mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
-        # Set Last Will and Testament
-        mqtt_client.will_set(
-            f"prusa_connect_rtsp/{CAMERA_SLUG}/availability",
-            "offline",
-            retain=True,
-        )
-        mqtt_client.on_connect = on_mqtt_connect
-        mqtt_client.on_disconnect = on_mqtt_disconnect
-        mqtt_client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=60)
-        mqtt_client.loop_start()
-    except Exception as e:
-        print(f"⚠️ MQTT setup failed: {e} - continuing without MQTT")
-        mqtt_client = None
-else:
-    print("ℹ️ MQTT not configured - camera entity will not be available in Home Assistant")
 
 # Check if RTSP_URL is set
 if not RTSP_URL:
@@ -129,16 +61,15 @@ if ENABLE_TIMELAPSE:
     if not os.path.exists(TIMELAPSE_DIR):
         os.makedirs(TIMELAPSE_DIR)
         print(f"📁 Created folder: {TIMELAPSE_DIR}")
-
-    # Count existing frames from previous sessions
-    existing_frames = glob.glob(os.path.join(TIMELAPSE_DIR, "*.jpg"))
-    if existing_frames:
-        print(f"📂 Found {len(existing_frames)} existing timelapse frames from previous sessions")
+    
+    # Clean directory at startup (only if timelapse is enabled)
+    print("🧹 Starting timelapse directory cleanup...")
+    cleanup_timelapse_directory()
 
 def capture_frame_from_camera():
     """
     Captures a single frame from RTSP camera, opening and closing connection
-
+    
     Returns:
         numpy.ndarray or None: Frame or None on error
     """
@@ -149,16 +80,16 @@ def capture_frame_from_camera():
         if not cap.isOpened():
             print("❌ Cannot open RTSP camera")
             return None
-
+        
         # Set buffer to minimum to get freshest frame
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
+        
         # Skip first few frames to get the freshest one
         for _ in range(3):
             ret, frame = cap.read()
             if not ret:
                 break
-
+        
         # Get final frame
         ret, frame = cap.read()
         if ret:
@@ -166,7 +97,7 @@ def capture_frame_from_camera():
         else:
             print("❌ Cannot capture frame from camera")
             return None
-
+            
     except Exception as e:
         print(f"❌ Error capturing frame: {e}")
         return None
@@ -178,23 +109,23 @@ def capture_frame_from_camera():
 def send_frame_to_prusa(image_bytes):
     """
     Sends frame to PrusaConnect using new HTTP session for each frame
-
+    
     Args:
         image_bytes: JPEG image bytes
-
+    
     Returns:
         tuple: (success: bool, status_code: int, response_text: str)
     """
     try:
         # Create new session for each frame (PrusaConnect fix)
         session = requests.Session()
-
+        
         # Disable connection pooling to force new connection
         session.mount('https://', requests.adapters.HTTPAdapter(pool_connections=1, pool_maxsize=1))
-
+        
         # CRITICAL: Add Content-Length header!
         content_length = len(image_bytes)
-
+        
         # Prepare headers with Content-Length
         headers = {
             "content-type": "image/jpg",
@@ -203,22 +134,22 @@ def send_frame_to_prusa(image_bytes):
             "token": TOKEN,
             "connection": "close",  # Force connection close
         }
-
+        
         # Send PUT request with raw image data
         response = session.put(PRUSA_URL, data=image_bytes, headers=headers, timeout=30)
-
+        
         # Explicitly close session
         session.close()
-
+        
         return True, response.status_code, response.text
-
+        
     except Exception as e:
         return False, 0, str(e)
 
 def save_timelapse_frame(frame, frame_count):
     """
     Saves frame to file for timelapse
-
+    
     Args:
         frame: OpenCV frame
         frame_count: Frame number
@@ -227,14 +158,14 @@ def save_timelapse_frame(frame, frame_count):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"frame_{frame_count:06d}_{timestamp}.jpg"
         filepath = os.path.join(TIMELAPSE_DIR, filename)
-
+        
         # Resize frame for timelapse (optional)
         height, width = frame.shape[:2]
         if width > 1920:  # Reduce if too large
             new_width = 1920
             new_height = int(height * (new_width / width))
             frame = cv2.resize(frame, (new_width, new_height))
-
+        
         cv2.imwrite(filepath, frame)
         return True
     except Exception as e:
@@ -248,26 +179,26 @@ def create_timelapse_video():
     try:
         # Find all JPG files in timelapse folder
         image_files = sorted(glob.glob(os.path.join(TIMELAPSE_DIR, "*.jpg")))
-
+        
         if len(image_files) < 2:
             print(f"⚠️ Not enough frames to create timelapse (found: {len(image_files)})")
             return False
-
+        
         print(f"🎬 Creating timelapse from {len(image_files)} frames...")
-
+        
         # Create timestamp for filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_filename = f"timelapse_{timestamp}.mp4"
-
+        
         # Read first frame to check size
         first_frame = cv2.imread(image_files[0])
         if first_frame is None:
             print("❌ Cannot read first frame")
             return False
-
+        
         height, width, _ = first_frame.shape
         print(f"📏 Frame size: {width}x{height}")
-
+        
         # Configure VideoWriter
         # Try different codecs
         fourcc_options = [
@@ -275,7 +206,7 @@ def create_timelapse_video():
             cv2.VideoWriter_fourcc(*'XVID'),  # AVI
             cv2.VideoWriter_fourcc(*'MJPG'),  # Motion JPEG
         ]
-
+        
         video_writer = None
         for fourcc in fourcc_options:
             try:
@@ -288,11 +219,11 @@ def create_timelapse_video():
                     video_writer = None
             except:
                 continue
-
+        
         if video_writer is None:
             print("❌ Cannot configure VideoWriter")
             return False
-
+        
         # Write frames to video
         print("🎥 Writing frames to video...")
         for i, image_file in enumerate(image_files):
@@ -302,14 +233,14 @@ def create_timelapse_video():
                 if frame.shape[:2] != (height, width):
                     frame = cv2.resize(frame, (width, height))
                 video_writer.write(frame)
-
+                
                 # Show progress every 10 frames
                 if i % 10 == 0:
                     print(f"   📝 Processed {i+1}/{len(image_files)} frames...")
-
+        
         # Release VideoWriter
         video_writer.release()
-
+        
         # Check if file was created
         if os.path.exists(output_filename):
             file_size = os.path.getsize(output_filename) / 1024 / 1024  # MB
@@ -321,7 +252,7 @@ def create_timelapse_video():
         else:
             print("❌ Video file was not created")
             return False
-
+            
     except Exception as e:
         print(f"❌ Error creating timelapse: {e}")
         return False
@@ -329,19 +260,19 @@ def create_timelapse_video():
 def cleanup_old_frames(max_frames=100000):
     """
     Removes oldest frames if there are too many
-
+    
     Args:
         max_frames: Maximum number of frames to keep
     """
     try:
         image_files = sorted(glob.glob(os.path.join(TIMELAPSE_DIR, "*.jpg")))
-
+        
         if len(image_files) > max_frames:
             files_to_remove = image_files[:-max_frames]  # Keep only last max_frames
             for file in files_to_remove:
                 os.remove(file)
             print(f"🧹 Removed {len(files_to_remove)} old frames")
-
+            
     except Exception as e:
         print(f"❌ Error cleaning up frames: {e}")
 
@@ -368,34 +299,27 @@ try:
             continue
 
         current_time = time.time()
-
+        
         # Save frame to timelapse if enabled
         if ENABLE_TIMELAPSE and (current_time - last_timelapse_save) >= TIMELAPSE_SAVE_INTERVAL:
             if save_timelapse_frame(frame, frame_count):
                 last_timelapse_save = current_time
-
+                
                 # Clean up old frames occasionally
                 if frame_count % 100 == 0:
                     cleanup_old_frames()
 
         # Encode frame to JPEG
         _, jpeg = cv2.imencode('.jpg', frame)
-
+        
         # Convert to bytes (like in JS: Uint8Array.from(binary, (c2) => c2.charCodeAt(0)))
         image_bytes = jpeg.tobytes()
-
-        # Publish frame to MQTT for Home Assistant camera entity
-        if mqtt_client and mqtt_connected:
-            try:
-                mqtt_client.publish(MQTT_IMAGE_TOPIC, image_bytes, retain=False)
-            except Exception as e:
-                print(f"⚠️ MQTT publish failed: {e}")
-
+        
         # Send frame using new HTTP session
         success, status_code, response_text = send_frame_to_prusa(image_bytes)
-
+        
         frame_count += 1
-
+        
         if success and status_code == 200:
             successful_uploads += 1
             print(f"📤 Frame #{frame_count} sent successfully. Size: {len(image_bytes)} bytes. Success: {successful_uploads}/{frame_count}")
@@ -411,31 +335,16 @@ try:
                 print("💡 Check data format - possible Content-Length issue")
             elif not success:
                 print("💡 Connection error - check internet connection")
-
+        
         time.sleep(UPLOAD_INTERVAL)
 
 except KeyboardInterrupt:
     print("\n🛑 Stopped by user")
-
+    
     # Create timelapse on exit if enabled
     if ENABLE_TIMELAPSE:
         print("🎬 Creating final timelapse...")
-        if create_timelapse_video():
-            # Only clean up frames after successful video creation
-            print("🧹 Cleaning up frames after successful timelapse creation...")
-            cleanup_timelapse_directory()
-
+        create_timelapse_video()
+        
 finally:
-    # Clean up MQTT connection
-    if mqtt_client:
-        try:
-            mqtt_client.publish(
-                f"prusa_connect_rtsp/{CAMERA_SLUG}/availability",
-                "offline",
-                retain=True,
-            )
-            mqtt_client.loop_stop()
-            mqtt_client.disconnect()
-        except Exception:
-            pass
-    print("✅ Work completed")
+    print("✅ Work completed") 
