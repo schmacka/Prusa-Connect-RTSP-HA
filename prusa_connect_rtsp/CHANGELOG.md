@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.1-patch1] - 2026-06-17
+
+### Fixed
+
+- Install failure on add-on build: `paho-mqtt` now installs from the Alpine `py3-paho-mqtt` package instead of pip (`--break-system-packages`)
+
+### Changed
+
+- `BUILD_FROM` is arch-neutral again (removed hardcoded amd64 default); added `build.yaml` so the Supervisor selects the correct per-architecture base image
+
 ## [1.3.1] - 2026-02-26
 
 ### Added
