@@ -1,7 +1,8 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
+ARG BUILD_FROM
 FROM $BUILD_FROM
 
 # Install system dependencies and Python packages from Alpine repos
+# paho-mqtt comes from the Alpine community repo (avoids a pip build at install time)
 RUN apk add --no-cache \
     python3 \
     py3-opencv \
@@ -11,9 +12,6 @@ RUN apk add --no-cache \
     ffmpeg \
     jq \
     bash
-
-# Install paho-mqtt for Home Assistant MQTT camera discovery
-#RUN pip3 install --no-cache-dir --break-system-packages paho-mqtt
 
 # Copy application files
 COPY main.py /
