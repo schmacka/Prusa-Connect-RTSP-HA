@@ -1,11 +1,4 @@
 import os
-
-# Force OpenCV to use FFMPEG for RTSP (with TCP transport) instead of GStreamer.
-# The HA base image's GStreamer build lacks the RTSP source plugin, which caused
-# noisy "missing plugin: Real Time Streaming Protocol (RTSP) source" warnings and
-# unreliable connections. This must be set before cv2 is imported.
-os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
-
 import cv2
 import requests
 import time
@@ -157,8 +150,8 @@ def capture_frame_from_camera():
     """
     cap = None
     try:
-        # Open new camera connection (force FFMPEG backend for RTSP)
-        cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
+        # Open new camera connection
+        cap = cv2.VideoCapture(RTSP_URL)
         if not cap.isOpened():
             print("❌ Cannot open RTSP camera")
             return None
