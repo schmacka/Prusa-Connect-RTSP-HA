@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.3] - 2026-07-06
+
+### Fixed
+
+- Add-on no longer exits when the camera is briefly unreachable at startup (e.g. on Home Assistant boot). The initial connection test now retries with a delay (configurable via `CONNECT_RETRIES` / `CONNECT_RETRY_DELAY`) instead of quitting on the first failure, removing the need to manually restart.
+- RTSP capture now forces OpenCV's FFMPEG backend with TCP transport, eliminating the `GStreamer warning: missing plugin: Real Time Streaming Protocol (RTSP) source` errors and improving connection reliability.
+
 ## [1.3.2] - 2026-07-01
 
 ### Fixed
