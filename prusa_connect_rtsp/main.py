@@ -1,10 +1,23 @@
 import os
+
+# Force OpenCV to use FFMPEG for RTSP (with TCP transport) instead of GStreamer.
+# The HA base image's GStreamer build lacks the RTSP source plugin, which caused
+# noisy "missing plugin: Real Time Streaming Protocol (RTSP) source" warnings and
+# unreliable connections. This must be set before cv2 is imported.
+os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+
 import cv2
 import requests
 import time
 import json
 from datetime import datetime
 import glob
+
+# Number of times / delay to retry the initial camera connection at startup.
+# Cameras and networking are often not ready the instant the add-on boots, so we
+# retry instead of exiting immediately (which forced a manual restart).
+CONNECT_RETRIES = int(os.environ.get("CONNECT_RETRIES", "12"))
+CONNECT_RETRY_DELAY = int(os.environ.get("CONNECT_RETRY_DELAY", "10"))
 
 # Get configuration from ENV or set default values
 TOKEN = os.environ.get("TOKEN", "YOUR_TOKEN_HERE")
@@ -144,8 +157,8 @@ def capture_frame_from_camera():
     """
     cap = None
     try:
-        # Open new camera connection
-        cap = cv2.VideoCapture(RTSP_URL)
+        # Open new camera connection (force FFMPEG backend for RTSP)
+        cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
         if not cap.isOpened():
             print("❌ Cannot open RTSP camera")
             return None
@@ -345,11 +358,21 @@ def cleanup_old_frames(max_frames=100000):
     except Exception as e:
         print(f"❌ Error cleaning up frames: {e}")
 
-# Test camera connection
+# Test camera connection, retrying so a not-yet-ready camera/network at boot
+# doesn't force the user to manually restart the add-on.
 print("🔌 Testing camera connection...")
-test_frame = capture_frame_from_camera()
+test_frame = None
+for attempt in range(1, CONNECT_RETRIES + 1):
+    test_frame = capture_frame_from_camera()
+    if test_frame is not None:
+        break
+    if attempt < CONNECT_RETRIES:
+        print(f"⏳ Camera not reachable yet (attempt {attempt}/{CONNECT_RETRIES}). "
+              f"Retrying in {CONNECT_RETRY_DELAY}s...")
+        time.sleep(CONNECT_RETRY_DELAY)
+
 if test_frame is None:
-    print("❌ Cannot connect to RTSP camera.")
+    print(f"❌ Cannot connect to RTSP camera after {CONNECT_RETRIES} attempts.")
     exit(1)
 
 print("✅ Camera connection working. Starting frame upload...")
