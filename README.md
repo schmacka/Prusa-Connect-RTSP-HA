@@ -45,6 +45,22 @@ cameras:
     timelapse_enabled: false
 ```
 
+## Troubleshooting
+
+### Camera images don't appear in Prusa Connect while the printer is off
+
+This is expected. Prusa Connect only accepts and displays webcam snapshots while
+the associated printer is **online**. The add-on keeps capturing and uploading
+frames regardless, but Prusa's server rejects them until the printer reconnects —
+so the snapshot simply stops updating in Connect until the printer is back on.
+
+To avoid flooding the log and hammering Prusa's endpoint during this time, the
+add-on automatically backs off: after several consecutive rejected uploads it
+progressively increases the interval between attempts (up to 5 minutes), logs a
+single "backing off" message, and returns to the normal `upload_interval` with an
+"uploads resumed" message as soon as the printer comes back online. No action is
+needed — images resume on their own.
+
 ## Credits
 
 This add-on wraps [Prusa-Connect-RTSP](https://github.com/Knopersikcuo/Prusa-Connect-RTSP) by Knopersikcuo.
