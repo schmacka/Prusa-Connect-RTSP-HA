@@ -5,8 +5,6 @@ on:
     branches: [main]
     paths:
       - 'prusa_connect_rtsp/**'
-  release:
-    types: [published]
   workflow_dispatch:
 
 env:
@@ -50,6 +48,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Read addon version
+        id: addon
+        run: |
+          VERSION=$(grep '^version:' prusa_connect_rtsp/config.yaml | sed -E 's/version:[[:space:]]*"?([^"]+)"?/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -58,6 +62,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.arch }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.arch }}:${{ steps.addon.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.arch }}:${{ github.sha }}
           build-args: |
             BUILD_FROM=ghcr.io/home-assistant/${{ matrix.arch }}-base:latest
