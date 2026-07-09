@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.5] - 2026-07-09
+
+### Changed
+
+- Supervisor now pulls prebuilt per-architecture images from GHCR instead of building the add-on locally on each device (added `image:` key). Installs are faster and no longer ship a build toolchain to every device.
+- CI now tags pushed images with the add-on version (e.g. `1.3.5`) so the Supervisor can resolve the correct image, alongside the existing `latest`/commit tags.
+
 ## [1.3.4] - 2026-07-06
 
 ### Fixed
