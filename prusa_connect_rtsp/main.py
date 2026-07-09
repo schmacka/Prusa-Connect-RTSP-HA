@@ -21,6 +21,12 @@ PRUSA_URL = "https://webcam.connect.prusa3d.com/c/snapshot"
 # Upload frequency configuration (in seconds)
 UPLOAD_INTERVAL = int(os.environ.get("UPLOAD_INTERVAL", "5"))  # Default 5 seconds
 
+# When uploads keep failing (e.g. printer offline in Prusa Connect, which rejects
+# snapshots until the printer reconnects), progressively slow down instead of
+# hammering the endpoint and flooding the log every UPLOAD_INTERVAL seconds.
+OFFLINE_BACKOFF_THRESHOLD = int(os.environ.get("OFFLINE_BACKOFF_THRESHOLD", "3"))  # consecutive failures before backing off
+OFFLINE_BACKOFF_MAX = int(os.environ.get("OFFLINE_BACKOFF_MAX", "300"))            # max seconds between attempts while backed off
+
 # Timelapse configuration
 ENABLE_TIMELAPSE = os.environ.get("ENABLE_TIMELAPSE", "false").lower() == "true"
 TIMELAPSE_SAVE_INTERVAL = int(os.environ.get("TIMELAPSE_SAVE_INTERVAL", "30"))  # Save frame every X seconds
@@ -373,6 +379,8 @@ print("✅ Camera connection working. Starting frame upload...")
 frame_count = 0
 successful_uploads = 0
 last_timelapse_save = 0
+consecutive_failures = 0
+backoff_active = False
 
 try:
     while True:
@@ -414,21 +422,44 @@ try:
 
         if success and status_code == 200:
             successful_uploads += 1
+            if backoff_active:
+                print("✅ Uploads accepted again — resuming normal interval")
+                backoff_active = False
+            consecutive_failures = 0
+            sleep_time = UPLOAD_INTERVAL
             print(f"📤 Frame #{frame_count} sent successfully. Size: {len(image_bytes)} bytes. Success: {successful_uploads}/{frame_count}")
-        elif success and status_code == 429:
-            print(f"⚠️ Rate limit exceeded! Increase UPLOAD_INTERVAL (current: {UPLOAD_INTERVAL}s)")
-            time.sleep(UPLOAD_INTERVAL * 2)  # Wait longer after rate limit
         else:
-            print(f"⚠️ Upload error #{frame_count}: {status_code} - {response_text}")
-            # Display error details
-            if status_code == 401:
-                print("💡 Check if token and fingerprint are correct")
-            elif status_code == 400:
-                print("💡 Check data format - possible Content-Length issue")
-            elif not success:
-                print("💡 Connection error - check internet connection")
+            consecutive_failures += 1
 
-        time.sleep(UPLOAD_INTERVAL)
+            # Only log the detailed error while we're not yet in steady backoff,
+            # so a persistently offline printer doesn't flood the log every tick.
+            if not backoff_active:
+                if success and status_code == 429:
+                    print(f"⚠️ Rate limit exceeded! Increase UPLOAD_INTERVAL (current: {UPLOAD_INTERVAL}s)")
+                else:
+                    print(f"⚠️ Upload error #{frame_count}: {status_code} - {response_text}")
+                    if status_code == 401:
+                        print("💡 Check if token and fingerprint are correct")
+                    elif status_code == 400:
+                        print("💡 Check data format - possible Content-Length issue")
+                    elif not success:
+                        print("💡 Connection error - check internet connection")
+
+            if consecutive_failures >= OFFLINE_BACKOFF_THRESHOLD:
+                # Exponential backoff, capped, so we stop hammering Prusa while it
+                # keeps rejecting frames (typically because the printer is offline).
+                sleep_time = min(
+                    UPLOAD_INTERVAL * 2 ** (consecutive_failures - OFFLINE_BACKOFF_THRESHOLD + 1),
+                    OFFLINE_BACKOFF_MAX,
+                )
+                if not backoff_active:
+                    backoff_active = True
+                    print(f"⏸️ Prusa Connect keeps rejecting frames (printer offline?). "
+                          f"Backing off to up to {OFFLINE_BACKOFF_MAX}s between attempts until it recovers.")
+            else:
+                sleep_time = UPLOAD_INTERVAL
+
+        time.sleep(sleep_time)
 
 except KeyboardInterrupt:
     print("\n🛑 Stopped by user")
