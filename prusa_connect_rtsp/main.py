@@ -156,8 +156,9 @@ def capture_frame_from_camera():
     """
     cap = None
     try:
-        # Open new camera connection
-        cap = cv2.VideoCapture(RTSP_URL)
+        # Open new camera connection, forcing FFMPEG backend to avoid GStreamer
+        # missing RTSP plugin errors on Alpine-based containers.
+        cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
         if not cap.isOpened():
             print("❌ Cannot open RTSP camera")
             return None
