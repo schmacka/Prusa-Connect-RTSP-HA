@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.6] - 2026-08-10
+
+### Fixed
+
+- RTSP stream fails on Alpine containers: force OpenCV to use the FFMPEG backend
+  (`cv2.CAP_FFMPEG`) instead of GStreamer, which is missing the `rtspsrc` plugin
+
 ## [1.3.2] - 2026-07-01
 
 ### Fixed
