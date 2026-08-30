@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.6] - 2026-08-30
+
+### Fixed
+
+- RTSP capture now forces OpenCV's FFMPEG backend (`cv2.CAP_FFMPEG`). The image ships no GStreamer `rtspsrc` plugin, so OpenCV's fallback to GStreamer could never open an RTSP stream and only buried the real error under `missing a required plugin: Real Time Streaming Protocol (RTSP) source` warnings. Unlike the reverted 1.3.3 attempt, this does **not** force RTSP-over-TCP transport, so UDP-only cameras keep working. Thanks @dwaq.
+
 ## [1.3.5] - 2026-07-09
 
 ### Changed
