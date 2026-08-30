@@ -67,10 +67,14 @@ for (( i=0; i<CAMERAS_COUNT; i++ )); do
 
     mkdir -p "$TIMELAPSE_DIR"
 
+    # Mask any credentials embedded in the RTSP URL before logging it.
+    # Host/port/path stay visible so connection problems remain diagnosable.
+    RTSP_URL_SAFE=$(echo "$RTSP_URL" | sed 's|://[^/@]*@|://***:***@|')
+
     # Log configuration details
     bashio::log.info "-------------------------------------------"
     bashio::log.info "Camera ${i}: ${CAMERA_NAME}"
-    bashio::log.info "  RTSP URL: ${RTSP_URL}"
+    bashio::log.info "  RTSP URL: ${RTSP_URL_SAFE}"
     bashio::log.info "  Fingerprint: ${FINGERPRINT}"
     bashio::log.info "  Token: ${TOKEN:0:8}... (hidden)"
     bashio::log.info "  Upload interval: ${UPLOAD_INTERVAL}s"
