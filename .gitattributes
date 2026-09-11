@@ -1,0 +1,11 @@
+# The upstream/ snapshot must stay byte-identical to what upstream publishes, so
+# drift detection compares bytes and not a normalised rendering. Keep git's
+# end-of-line conversion out of it (upstream ships CRLF in requirements.txt).
+upstream/** -text
+
+# Everything the add-on ships must use UNIX line endings; the Home Assistant
+# Supervisor and the container's shell both choke on CRLF.
+prusa_connect_rtsp/** text=auto eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

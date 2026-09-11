@@ -1,34 +1,88 @@
 name: Sync Upstream
 
+# Watches upstream Prusa-Connect-RTSP and reports when it moves. It deliberately
+# does NOT copy upstream files over the add-on's own sources.
+#
+# prusa_connect_rtsp/main.py began as a copy of upstream's main.py but has
+# diverged: it carries repo-local fixes (forced FFMPEG backend, startup
+# connection retry, offline back-off) that upstream does not have. The previous
+# version of this workflow curl'd upstream's main.py straight over it, which
+# would have reverted every one of those fixes. Instead, upstream/ holds a
+# byte-exact snapshot of the upstream revision we last reviewed, and this
+# workflow only ever advances that snapshot — porting changes into the add-on is
+# a deliberate human merge.
+
 on:
   schedule:
     - cron: '0 2 * * *'  # Daily at 2:00 AM UTC
   workflow_dispatch:
 
 jobs:
-  sync:
+  drift-check:
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
 
+    env:
+      # Reports live outside the working tree so the drift check never leaves
+      # stray files for the pull request to pick up.
+      REPORT: ${{ runner.temp }}/drift-report.md
+      PR_BODY: ${{ runner.temp }}/pr-body.md
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch upstream files
+      - name: Check upstream for drift
+        id: drift
         run: |
-          curl -sL https://raw.githubusercontent.com/Knopersikcuo/Prusa-Connect-RTSP/main/main.py -o prusa_connect_rtsp/main.py
-          curl -sL https://raw.githubusercontent.com/Knopersikcuo/Prusa-Connect-RTSP/main/requirements.txt -o prusa_connect_rtsp/requirements.txt
+          status=0
+          ./scripts/check-upstream-drift.sh \
+            --update-snapshot \
+            --summary-file "$REPORT" || status=$?
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          case "$status" in
+            0) echo "drift=false" >> "$GITHUB_OUTPUT" ;;
+            1) echo "drift=true"  >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::upstream drift check failed (exit $status)"; exit "$status" ;;
+          esac
 
-      - name: Create Pull Request
+      # Belt and braces: the script has its own guard, but make the workflow
+      # itself refuse to carry on if anything outside upstream/ changed.
+      - name: Verify only the snapshot changed
+        if: steps.drift.outputs.drift == 'true'
+        run: |
+          changed="$(git status --porcelain | cut -c4-)"
+          stray="$(printf '%s\n' "$changed" | grep -v '^upstream/' | grep -v '^$' || true)"
+          if [ -n "$stray" ]; then
+            echo "::error::drift check touched files outside upstream/:"
+            printf '%s\n' "$stray"
+            exit 1
+          fi
+          echo "Only upstream/ changed:"
+          printf '%s\n' "$changed"
+
+      - name: Trim report for the pull request body
+        if: steps.drift.outputs.drift == 'true'
+        run: |
+          # PR bodies cap out at 65536 characters; the full report is always in
+          # the run summary.
+          head -c 60000 "$REPORT" > "$PR_BODY"
+          if [ "$(wc -c < "$REPORT")" -gt 60000 ]; then
+            printf '\n_Report truncated — see the [workflow run summary](%s/%s/actions/runs/%s) for the full diff._\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$PR_BODY"
+          fi
+
+      - name: Open a review pull request for the snapshot
+        if: steps.drift.outputs.drift == 'true'
         uses: peter-evans/create-pull-request@v5
         with:
-          commit-message: "chore: sync upstream Prusa-Connect-RTSP"
-          title: "Sync with upstream Prusa-Connect-RTSP"
-          body: |
-            Automated sync of `main.py` and `requirements.txt` from upstream.
-
-            Source: [Knopersikcuo/Prusa-Connect-RTSP](https://github.com/Knopersikcuo/Prusa-Connect-RTSP)
-          branch: sync-upstream
+          # Commit the snapshot and nothing else, whatever else is in the tree.
+          add-paths: |
+            upstream/
+          commit-message: "chore: refresh reviewed upstream snapshot"
+          title: "Upstream Prusa-Connect-RTSP has changed — review and port by hand"
+          body-path: ${{ runner.temp }}/pr-body.md
+          branch: upstream-drift
           delete-branch: true
           labels: upstream-sync, automated

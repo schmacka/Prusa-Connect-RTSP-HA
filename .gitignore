@@ -8,3 +8,9 @@ __pycache__/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Local, per-machine agent context and scratch state. Never checked in —
+# listed here so an automated checkpoint commit cannot pick them up.
+CLAUDE.local.md
+.beads/
+.runtime/

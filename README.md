@@ -9,7 +9,9 @@ Stream RTSP camera feeds to Prusa Connect for 3D printer monitoring through Home
 - **Multi-camera support**: Configure multiple cameras, each with its own Prusa Connect credentials
 - **Password-protected tokens**: Prusa Connect tokens are hidden in the UI
 - **Timelapse support**: Optional frame capture for timelapse video generation
-- **Automated upstream sync**: GitHub Actions workflow keeps the core application updated
+- **Upstream drift tracking**: a GitHub Actions workflow reports when upstream
+  Prusa-Connect-RTSP changes, for review and hand-merging — it never overwrites
+  the add-on's source (see [`upstream/`](upstream/README.md))
 
 ## Installation
 
