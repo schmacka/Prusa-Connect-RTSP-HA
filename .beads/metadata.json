@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "Prusa_Connect_RTSP_HA",
+  "project_id": "847240d2-b38e-49d6-8f13-e20d1d600dc7"
+}
