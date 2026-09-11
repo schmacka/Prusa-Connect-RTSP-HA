@@ -24,23 +24,20 @@ jobs:
       contents: write
       pull-requests: write
 
-    env:
-      # Reports live outside the working tree so the drift check never leaves
-      # stray files for the pull request to pick up.
-      REPORT: ${{ runner.temp }}/drift-report.md
-      PR_BODY: ${{ runner.temp }}/pr-body.md
-
     steps:
       - uses: actions/checkout@v4
 
       - name: Check upstream for drift
         id: drift
         run: |
+          # Reports live outside the working tree so the drift check never
+          # leaves stray files for the pull request to pick up.
+          report="$RUNNER_TEMP/drift-report.md"
           status=0
           ./scripts/check-upstream-drift.sh \
             --update-snapshot \
-            --summary-file "$REPORT" || status=$?
-          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+            --summary-file "$report" || status=$?
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
           case "$status" in
             0) echo "drift=false" >> "$GITHUB_OUTPUT" ;;
             1) echo "drift=true"  >> "$GITHUB_OUTPUT" ;;
@@ -67,15 +64,17 @@ jobs:
         run: |
           # PR bodies cap out at 65536 characters; the full report is always in
           # the run summary.
-          head -c 60000 "$REPORT" > "$PR_BODY"
-          if [ "$(wc -c < "$REPORT")" -gt 60000 ]; then
+          report="$RUNNER_TEMP/drift-report.md"
+          body="$RUNNER_TEMP/pr-body.md"
+          head -c 60000 "$report" > "$body"
+          if [ "$(wc -c < "$report")" -gt 60000 ]; then
             printf '\n_Report truncated — see the [workflow run summary](%s/%s/actions/runs/%s) for the full diff._\n' \
-              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$PR_BODY"
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$body"
           fi
 
       - name: Open a review pull request for the snapshot
         if: steps.drift.outputs.drift == 'true'
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@v8
         with:
           # Commit the snapshot and nothing else, whatever else is in the tree.
           add-paths: |
