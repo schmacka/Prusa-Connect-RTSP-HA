@@ -11,6 +11,7 @@ __pycache__/
 
 # Local, per-machine agent context and scratch state. Never checked in —
 # listed here so an automated checkpoint commit cannot pick them up.
+# (.beads/ is deliberately NOT here: the repo tracks it, and beads ships its
+# own .beads/.gitignore for the parts that are runtime state.)
 CLAUDE.local.md
-.beads/
 .runtime/
