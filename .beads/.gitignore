@@ -73,5 +73,14 @@ db.sqlite
 bd.db
 # NOTE: Do NOT add negation patterns here.
 # They would override fork protection in .git/info/exclude.
-# Config files (metadata.json, config.yaml) are tracked by git by default
-# since no pattern above ignores them.
+# Config files (metadata.json, config.yaml) are tracked by git by default —
+# but metadata.json must NOT be in a Gas Town rig. It pins dolt_database,
+# dolt_mode and project_id, which are per-machine: this repo's committed copy
+# named an embedded database "Prusa_Connect_RTSP_HA" that exists nowhere, while
+# the rig's real beads live in the shared server-mode database reached through
+# the untracked .beads/redirect file. A tracked metadata.json WINS over
+# redirect, so every fresh checkout of main broke bd entirely — including
+# 'gt done', which pushed the branch, failed to create the MR bead and still
+# reported success. Keep it untracked so redirect governs.
+metadata.json
+interactions.jsonl
