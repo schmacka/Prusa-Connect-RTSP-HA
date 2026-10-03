@@ -16,7 +16,7 @@ CONNECT_RETRY_DELAY = int(os.environ.get("CONNECT_RETRY_DELAY", "10"))
 TOKEN = os.environ.get("TOKEN", "YOUR_TOKEN_HERE")
 FINGERPRINT = os.environ.get("FINGERPRINT", "YOUR_FINGERPRINT_HERE")
 RTSP_URL = os.environ.get("RTSP_URL")
-PRUSA_URL = "https://webcam.connect.prusa3d.com/c/snapshot"
+PRUSA_URL = "https://connect.prusa3d.com/c/snapshot"
 
 # Upload frequency configuration (in seconds)
 UPLOAD_INTERVAL = int(os.environ.get("UPLOAD_INTERVAL", "5"))  # Default 5 seconds
